@@ -1,0 +1,2724 @@
+<html>
+
+<head>
+<meta charset="utf8">   
+</head>
+
+<body>
+
+
+<style>
+  .label { display:none; }
+  .arrow {  display:none; }
+  .result {   display:none;}
+  .result_name { display:none;}
+  .nominalValue {display:block;}
+
+  #PARAMETERS {
+    position: fixed;
+    top:10%;
+    left:25%;
+    width:50%;
+  /*  height:80%;*/
+    background-color: #E0E0FF;
+    border: 2px solid black;
+    z-index:10;
+    display:none;
+  }
+
+  #COVER {
+    display: none;
+    position:fixed;
+    width:100%;
+    height:100%;
+    top:0%;
+    left:0%;
+    background-color: rgba(255,255,255,0.5);
+    z-index:9;
+  }
+
+  #BUTTON_BLOCK {
+    position:absolute; 
+    left:750px; 
+    top: 50px; 
+    width:400px; 
+    height:400px; 
+    overflow:scroll;
+  }
+
+  #CALC_BUTTONS {
+  	position:absolute;
+  	left: 750px;
+  	top: 450px;
+  	width:400px;
+  	height:200px;
+  	overflow: scroll;
+  }
+
+  #DRAW_WINDOW  {
+    position:absolute; 
+    left:10px; 
+    top:50px; 
+    width:700px; 
+    height: 500px; 
+    background-color: white; 
+    overflow:scroll;
+  }
+
+  #CANVAS {
+    position:absolute; 
+    left:0px; 
+    top:0px; 
+    width:1200px; 
+    height:1000px; 
+    background-color:#FFFFE8;
+  } 
+
+</style>
+
+
+<script> 
+
+function swap_array_elements( arr, i, j )
+{
+    const c = arr[i];
+    arr[i] = arr[j];
+    arr[j] = c;
+
+}
+
+function zeros( m, n )
+{
+    let A = new Array(m);
+    for( let i=0; i<m;i++ )
+    {   
+        A[i] = new Array(n);
+        for( let j=0; j<n; j++)
+            A[i][j] = 0;
+    }
+
+    return A;
+}
+
+function copy_array(arr){
+    return arr.slice();
+}
+
+function copy_matrix( A ) {
+    return A.map( row => row.slice() );
+}
+
+function print_matrix( Name, A, b )
+{
+	console.log(" MATRIX : " + Name )
+ 
+    const m = A.length;
+    const n = A[0].length;
+
+    for( let i=0; i<m; i++ )
+    {
+        const row = A[i].reduce( (s,aij) => s + " " + aij, "" ) + " = " + b[i]
+        console.log(row);
+
+    }
+}
+
+
+function npow( x, n )
+{
+   let xn = 1;
+   while(n--)  xn *= x;
+   return xn; 
+}
+
+
+// based on code by  Martin Thoma, taken from here https://martin-thoma.com/solving-linear-equations-with-gaussian-elimination/
+// A : array of array (matrix)
+// b : array
+// return : array x = A^-1 * b 
+function gauss_solve( A, b )
+{
+    let i,j,k;
+    const n = A.length;
+
+    A = copy_matrix(A);
+    b = copy_array(b);
+
+    for ( i=0; i<n; i++)
+    {
+        // Search for maximum in this column
+        let maxEl = Math.abs(A[i][i]);
+        let maxRow = i;
+
+        for ( k=i+1; k<n; k++) 
+        {
+            if (Math.abs(A[k][i]) > maxEl) 
+            {
+                maxEl = Math.abs(A[k][i]);
+                maxRow = k;
+            }
+        }
+
+        // Swap maximum row with current row (column by column)
+        swap_array_elements( A, maxRow, i);
+        swap_array_elements( b, maxRow, i);
+
+        // Make all rows below this one 0 in current column
+        for ( k=i+1; k<n; k++) 
+        {
+            const c = -A[k][i]/A[i][i];
+            for ( j=i; j<n; j++) 
+                A[k][j] += c * A[i][j];
+            
+            b[k] += c * b[i]; 
+        }
+    }
+
+    // Solve equation Ax=b for an upper triangular matrix A
+    //x.resize(n);
+    x = new Array(n);
+    for ( i=n-1; i>=0; i--) 
+    {
+        x[i] = b[i]/A[i][i];
+        for ( k=i-1;  k>=0;  k--) 
+            b[k] -= A[k][i] * x[i];
+    }
+
+    return x;
+}
+
+
+ // ****************  LU  **********************
+
+ // taken from wikipedia : https://en.wikipedia.org/wiki/LU_decomposition
+ //   pointers changed to vectors, swaps done with std::swap 
+
+ // * INPUT: A - array of vectorss to rows of a square matrix having dimension N
+ // *        Tol - small tolerance number to detect failure when the matrix is near degenerate
+ // * OUTPUT: Matrix A is changed, it contains both matrices L-E and U as A=(L-E)+U such that P*A=L*U.
+ // *        The permutation matrix is not stored as a matrix, but in an integer vector P of size N+1 
+ // *        containing column indexes where the permutation matrix has "1". The last element P[N]=S+N, 
+ // *        where S is the number of row exchanges needed for determinant computation, det(P)=(-1)^S    
+
+// return permutations or null if failed
+
+function lup_decompose( A, Tol )
+{
+    let i, j, k, imax; 
+    let maxA, absA;
+
+    A = copy_matrix(A);
+
+    const N = A.length;
+    let P = new Array( N + 1 );
+
+    for (i = 0; i <= N; i++)
+        P[i] = i; //Unit permutation matrix, P[N] initialized with N
+
+    for (i = 0; i < N; i++) 
+    {
+        maxA = 0.0;
+        imax = i;
+
+        for (k = i; k < N; k++)
+        {
+            if ((absA = Math.abs(A[k][i])) > maxA) 
+            { 
+                maxA = absA;
+                imax = k;
+            }
+        }
+
+        if (maxA < Tol) return null; //failure, matrix is degenerate
+
+        if (imax != i) 
+        {
+            //pivoting rows of A
+            swap_array_elements( P, i, imax );
+            swap_array_elements( A, i, imax );
+            //counting pivots starting from N (for determinant)
+            P[N]++;
+        }
+
+        for (j = i+1; j < N; j++ )
+        {
+            A[j][i] /= A[i][i];
+
+            for (k = i + 1; k < N; k++)
+                A[j][k] -= A[j][i] * A[i][k];
+        }
+    } // i 
+
+    return {LU:A,P:P};  //decomposition done 
+}
+
+
+ // * INPUT: A,P filled in LUPDecompose; b - rhs vector; N - dimension
+ // * return :  x - solution vector of A*x=b
+
+function lup_solve( LUP, b )
+{
+    let i,k;
+    const A = LUP.LU;
+    const P = LUP.P;
+
+    const N = A.length;
+
+    x = new Array(N);
+
+    for ( i=0; i<N; i++) 
+    {
+        x[i] = b[P[i]];
+
+        for ( k=0; k < i; k++)
+            x[i] -= A[i][k] * x[k];
+    }
+
+    for ( i = N-1; i >= 0; i--)
+    {
+        for ( k = i+1; k < N; k++)
+            x[i] -= A[i][k] * x[k];
+
+        x[i] = x[i] / A[i][i];
+    }
+
+    return x;
+}
+
+ // * INPUT: A,P filled in LUPDecompose; N - dimension
+ // * return: IA is the inverse of the initial matrix
+ 
+function lup_invert( LUP ) 
+{
+    let i,j,k;
+
+    const A = LUP.LU;
+    const P = LUP.P;
+
+    const N = A.length;
+
+    let invA = LUP.LU.map( x => new Array(N) );
+  
+    for ( j=0; j<N; j++)
+    {
+        for ( i=0; i<N; i++)
+        {
+            if (P[i] == j) 
+                invA[i][j] = 1.0;
+            else
+                invA[i][j] = 0.0;
+
+            for ( k=0; k<i; k++)
+                invA[i][j] -= A[i][k] * invA[k][j];
+        }
+
+        for ( i=N-1; i >= 0; i--)
+        {
+            for ( k=i+1; k < N; k++)
+                invA[i][j] -= A[i][k] * invA[k][j];
+
+            invA[i][j] = invA[i][j] / A[i][i];
+        }
+    } // j 
+
+    return invA;
+}
+
+ // * INPUT: A,P filled in LUPDecompose; N - dimension. 
+ // * OUTPUT: Function returns the determinant of the initial matrix
+ 
+function lup_determinant( LUP ) 
+ {
+    const A = LUP.LU;
+    const P = LUP.P;
+
+    const N  = A.length;
+    let det = A[0][0];
+
+    for (let i = 1; i < N; i++)
+        det *= A[i][i];
+
+    if ((P[N] - N) % 2 == 0)
+        return det; 
+    else
+        return -det;
+}
+
+function matrix_mul_vec( A, x )
+{
+	const m = A.length;
+	const n = A[0].length;
+	
+	const y = x.slice();
+
+	for( let i=0; i<m; i++)
+	{
+		y[i] = 0;
+		for( let j=0; j<n; j++ )
+		{
+			y[i] += A[i][j] * x[j];
+		}
+
+	}
+
+	return y;
+}
+
+function vec_sum( x, y)
+{
+//	console.log("vec_sum x = " + JSON.stringify(x) + " y = " + JSON.stringify(y) )
+
+	let s = x.slice();
+	for( let i=0; i<x.length; i++) s[i] += y[i];
+
+	return s;
+}
+
+
+function test_linalg()
+{
+
+let A = [ [ 1, 3, 5], [6,4,6], [0,0,1] ];
+let b = [ 1 , 2, 3];
+
+let B = copy_matrix(A);
+B[1][1] = 7;
+console.log(A)
+console.log(B)
+
+
+console.log( gauss_solve(A,b));
+
+LUP = lup_decompose( A, 1e-6 );
+
+console.log( LUP.LU)
+console.log( LUP.P ) 
+
+
+console.log( lup_solve( LUP, b))
+console.log( lup_invert(LUP ) )
+
+console.log( lup_determinant( LUP) )
+
+//const P = lup_decompose( A, 1e-6 );
+
+//console.log(A)
+//console.log(P)
+}
+
+
+</script>
+
+    <p id = "HINT"> </p>
+
+    <div  id="DRAW_WINDOW">
+        
+        <div id="CANVAS"></div>
+
+        <div id="ELEMENTS">
+
+
+
+        </div>
+
+
+
+    </div>
+
+  
+
+
+    <div  id="BUTTON_BLOCK" >
+
+
+    <input type="checkbox" id="SWITCH_LABELS" onclick="switchLabelsClick();"  >  Названия элементов <br>
+    <input type="checkbox" id="SWITCH_ARROWS" onclick="switchArrowsClick();"  >  Направления тока <br>    
+    <input type="checkbox" id="SWITCH_RESULT_NAMES" onclick="switchResultNamesClick();"  >  Названия токов и потенциалов <br>  
+    <input type="checkbox" id="SWITCH_RESULTS" onclick="switchResultsClick();"  >  Посчитанные токи и потенциалы <br>    
+    <input type="checkbox" id="SWITCH_NOMINALS" onclick="switchNominalsClick();" checked >  Номиналы <br>    
+
+    <button onclick = "setPointCallback()"         > Поставить точку </button> 
+    <button onclick = "movePointCallback()"        > Подвинуть точку </button> <br>
+
+    <button onclick = "setWireCallback()"          > провод              </button>    
+    <button onclick = "setResistorCallback()"      > резистор            </button> 
+    <button onclick = "setCapacitorCallback()"     > конденсатор         </button> 
+    <button onclick = "setInductorCallback()"      > катушка             </button>     
+    <button onclick = "setDiodeCallback()"         > диод                </button>     
+    <button onclick = "setTransistorCallback()"    > транзистор          </button>      
+    <button onclick = "setSourceCallback()"        > источник напряжения </button> 
+    <button onclick = "setGroundCallback()"        > земля               </button> 
+
+    <button onclick = "changeParametersCallback()" > Поменять параметры </button> <br> 
+    <button onclick = "deleteElementCallback()"    > Удалить            </button> <br>
+
+    </div>
+
+    <div id="CALC_BUTTONS" > 
+
+    <br><br>
+
+    <button onclick = "countCallback()" > Посчитать </button> <br>
+    <button onclick = "nextStepCallback()" > Следуюший шаг </button> <br>
+    <button onclick = "hundredStepsCallback()" > Сто шагов </button> <br>    
+   
+    </div>
+
+
+
+    <div id = "COVER" > </div>
+
+    <div  id = "PARAMETERS" >
+        <p id="PARAMETERS_TITLE"> </p>
+        <div id="PARAMETER_LIST" style="width:100%;">
+
+        </div>
+
+        <div style="width:100%" >
+            <div style="margin:auto;width:50%;" >
+                <button onclick="closeParameters()" style="width:45%;" > Закрыть </button>
+                <button onclick="saveParameters()"  style="width:45%;" > Сохранить </button>
+            </div>
+        </div>
+    </div>
+
+<script>
+
+
+function addPt(P1,P2)
+{
+    return {x:P1.x+P2.x, y:P1.y+P2.y};
+}
+
+function subPt(P1,P2)
+{
+    return {x:P1.x-P2.x, y:P1.y-P2.y};
+}
+
+function scalePt(P,factor)
+{
+    return {x:P.x*factor, y:P.y*factor };
+}
+
+
+function absValPt(P) 
+{
+    return Math.sqrt( P.x*P.x + P.y*P.y );
+}
+
+function midPoint(P1,P2)
+{
+    return scalePt( addPt(P1,P2),0.5 );
+}
+
+function midPoint3(P1,P2,P3)
+{
+	return scalePt( addPt( addPt(P1,P2), P3), 1.0 / 3.0 );
+}
+
+
+function dist(P1,P2)
+{
+    return absValPt( subPt(P1,P2) );
+}
+
+
+function removeTags( taglist )
+{
+    let elements = document.getElementById("ELEMENTS");
+
+    for( let tag of taglist )
+    {
+        elements.removeChild(tag);
+    } 
+
+}
+
+
+
+function setClassVisible( className, switchName )
+
+{
+    let els = document.getElementsByClassName(className);
+
+    const checked = document.getElementById(switchName).checked;
+
+    const display_style = checked ? "block" : "none";
+    for( el of els )
+    {
+        el.style.display = display_style;
+
+    }
+
+}
+
+
+function switchLabelsClick()  { setClassVisible("label", "SWITCH_LABELS" ); }
+
+function switchArrowsClick() { setClassVisible("arrow", "SWITCH_ARROWS" ); }
+
+
+function switchResultNamesClick() { setClassVisible("result_name", "SWITCH_RESULT_NAMES" ); }
+
+
+
+function switchResultsClick(){ setClassVisible("result", "SWITCH_RESULTS" ); }
+
+
+function switchNominalsClick() { setClassVisible("nominalValue", "SWITCH_NOMINALS" ); }
+
+function addElementTag( left, top, width, height, col )
+{
+   let tag = document.createElement("div");
+   
+   tag.style.position = "absolute";
+   tag.style.left   = left   + "px";
+   tag.style.top    = top    + "px";
+   tag.style.width  = width  + "px";
+   tag.style.height = height + "px";
+
+   tag.style.backgroundColor = col;
+
+   let element = document.getElementById("ELEMENTS");
+   element.appendChild(tag);
+
+   return tag;
+}
+
+
+
+
+function addCenteredTag( cx, cy, w, h, col, angle = 0 )
+{
+    let tag = addElementTag( cx - w/2, cy-h/2, w, h, col);
+
+    if(angle != 0)
+    {
+        tag.style.transform = "rotate(" + angle + "rad)";
+    }
+    return tag;
+}
+
+//    L = dist(P1,P2)
+//       *
+//      /                                  C-L/2   w=L, h=1 
+//     +<-- C = (P1 + P2)/2    add element *-----C-----*
+//    /
+//   * 
+
+// rotation: atan2(dy/dx)
+function addWireTag(P1,P2)
+{
+    const C = midPoint(P1,P2);
+    const L = dist(P1,P2);
+    const angle = Math.atan2(P2.y-P1.y, P2.x-P1.x);
+
+    return addCenteredTag( C.x, C.y, L, 2, "black", angle );
+}
+
+
+
+//              * P2  L=dist(P1,P2)
+//             /
+//            /              (X1-P1) = (P2-P1)*(L-w)/2L 
+//       w /\ <-- X2         (X2-P2) = (P1-P2)*(L-w)/2L
+//        / /
+//        \/
+//(L-w)/2/ <-- X1    
+//      /
+//     * P1
+//
+
+function addElementBox(P1,P2,w,h,text, borderWidth)
+{
+   const L = dist(P1,P2);
+   const factor = (L-w)/2/L;
+
+   const X1 = addPt( scalePt( subPt(P2,P1),factor ), P1 );
+   const X2 = addPt( scalePt( subPt(P1,P2),factor ), P2 );  
+   const C  = midPoint( P1, P2 );
+
+   const dy = P2.y-P1.y;
+   const dx = P2.x-P1.x;
+
+   const angle = Math.atan2( dy, dx );
+
+   const wire1 = addWireTag(P1,X1);
+   const wire2 = addWireTag(P2,X2);
+   const el    = addCenteredTag(C.x,C.y,w,h,"white",angle);
+
+   el.style.display = "table";
+   el.innerHTML = "<div style='display:table-cell;vertical-align:middle;text-align:center' class='nominal' >" + text + "  </div>";
+
+   return {all:[ wire1, wire2, el ], centralTag:el }
+   //return {wire1:wire1, wire2:wire2, el:el };
+}
+
+function drawGrid()
+{
+    let el = document.getElementById("CANVAS");
+
+
+  //  const W = parseInt(el.style.width);
+  //  const H = parseInt(el.style.height);
+    const W = el.offsetWidth; //parseInt(el.sty.width);
+    const H = el.offsetHeight; //parseInt(el.style.height);
+
+    let path = "";
+
+    for( let x = 0; x<W; x+=100 )
+    {
+        path += "M " + x + ",0 L " + x + "," + H + " ";
+    }
+
+    for( let y = 0; y<H; y+=100 )
+    {
+        path += "M 0," + y + " L " + W + "," + y + " ";     
+    }
+
+    let path2 = "";
+
+    for( let x = 0; x<W; x+=20 )
+    {
+        if( x % 100 == 0 ) continue;
+        path2 += "M " + x + ",0 L " + x + "," + H + " ";
+    }
+
+    for( let y = 0; y<H; y+=20 )
+    {
+        if( y % 100 == 0 ) continue;
+        path2 += "M 0," + y + " L " + W + "," + y + " ";        
+    }
+
+
+    const svg_style = 'fill="none" stroke="black" stroke-dasharray="5,5"';
+    const svg_style2 = 'fill="none" stroke="black" stroke-dasharray="1,4"';
+
+    const path_str = '<path  ' + svg_style + ' d="' + path + '"> </path>';
+    const path_str2 = '<path  ' + svg_style2 + ' d="' + path2 + '"> </path>';    
+
+    const svg = '<svg width="' + W + '" height="' + H + '" > ' +path_str + path_str2 + ' </svg>'; 
+
+    el.innerHTML = svg; //'<div style="width:1000px;height:1000px;background-color:green;">' +
+    //                   </div>';
+//;
+
+
+
+
+}
+
+let SelectedPoints = [];
+
+function clearPoints()
+{
+    SelectedPoints = []
+}
+
+// ---------- ConnectionPoints array 
+
+let ConnectionPoints = []
+let ElementList = [];
+let ResistorList = [];
+
+function findPoint( pointName )
+{
+    const list = ConnectionPoints.filter( pt => pt.name == pointName)
+    return list.length == 1 ? list[0] : null;
+}
+
+
+function listByType( type )
+{
+    return type === CONNECTION_POINT ? ConnectionPoints : ElementList ;
+}
+
+
+function uniqueElementName( arr, prefix )
+{
+    let id = 1;
+    while( id<1000000 )
+    {
+       if( arr.filter( obj => obj.name == prefix + id ).length == 0 ) break;
+       id++;
+    }
+
+    return prefix + id;
+}
+
+function svgLine( w, h, str, width=2 )
+{
+  return '<svg width="' + w + '" height="' + h + '"> <path stroke="black" fill="none" stroke-width="' + width + '" d="' + str + '" />  </svg>';
+}
+
+function resultNameHTML( resultName )
+{
+    return resultName.replace("Phi","φ").replace(/([^\d]*)([\d]*)/, (match, p1, p2, offset, string) => p1 + "<sub>" + p2 + "</sub>" )
+}
+// ---------- mode enum
+
+const MODE_NULL            = "";
+const MODE_SET_POINT       = "SetPointMode"     ;
+const MODE_MOVE_POINT      = "MovePointMode"    ;
+const MODE_SET_WIRE        = "SetWireMode"      ;
+const MODE_SET_RESISTOR    = "SetResistorMode"  ;
+const MODE_SET_CAPACITOR   = "SetCapacitorMode" ;
+const MODE_SET_INDUCTOR    = "SetInductorMode"  ;
+const MODE_SET_DIODE       = "SetDiodeMode"     ;
+const MODE_SET_TRANSISTOR  = "SetTransistorMode";
+const MODE_SET_SOURCE      = "SetSourceMode"    ;
+const MODE_SET_GROUND      = "SetGroundMode"    ;
+const MODE_PARAMETERS      = "ParametersMode"   ;
+const MODE_DELETE_ELEMENT  = "DeleteElementMode";
+
+const CONNECTION_POINT = "P";
+const WIRE             = "W";
+const RESISTOR         = "R";
+const CAPACITOR        = "C";
+const INDUCTOR         = "L";
+const DIODE            = "D";
+const TRANSISTOR       = "T";
+const SOURCE           = "S";
+const GROUND           = "G";
+
+
+let CurrentMode = MODE_NULL;
+
+
+let CurrentElementName = "";
+//let CurrentElementParameters = [];
+
+
+function showParameters(currentElement,currentElementParameters) 
+{
+
+    PARAMETERS_TITLE.innerHTML = "Параметры элемента " + currentElement;
+
+    let tag = document.getElementById("PARAMETER_LIST");
+
+    CurrentElementName = currentElement;
+  //  CurrentElementParameters = currentElementParameters; 
+
+    let s = "";    
+    let i = 0;
+
+    for( let p in currentElementParameters )
+    {
+        s += p + '<input id="PARAM_' + p + '" value="' + currentElementParameters[p] + '"> <br>';
+    }
+
+    tag.innerHTML = s;
+    PARAMETERS.style.display = "block";
+    COVER.style.display = "block";
+}
+
+
+function saveParameters()
+{
+    let list = ElementList; //listByType(CurrentElementType);
+
+    const found_list = list.filter( x => x.name == CurrentElementName );
+    if( found_list.length == 1 )
+    {
+        let el = found_list[0]; 
+
+        let plist = []
+        let p ="";
+
+        for( p in el.params )
+        {
+            plist.push(p)
+        }       
+
+        for( p of plist )
+        {
+            let tag = document.getElementById('PARAM_' + p );
+            if( typeof tag != 'undefined')
+            {
+                el.params[p] = parseFloat(tag.value);                
+            }
+        }
+
+        updateElement( el );
+    }
+
+    closeParameters();
+}
+
+function closeParameters()
+{   
+    PARAMETERS.style.display = "none";
+    COVER.style.display = "none";
+}
+
+
+
+CANVAS.onclick = function (event) {onCanvasClick(event);}
+
+function setHint( text ) 
+{
+    let hint = document.getElementById("HINT");
+    hint.innerHTML = text;  
+}
+
+
+// ----------- mode callcbacks 
+function setPointCallback()         
+{
+    CurrentMode = MODE_SET_POINT;
+    setHint("Click somewhere to set a new connection point");  
+    clearPoints(); 
+}
+
+
+function movePointCallback()        
+{
+    CurrentMode = MODE_MOVE_POINT;     
+    setHint("Click on the point you want to move");
+    clearPoints(); 
+}
+
+function setWireCallback()       
+{
+    CurrentMode = MODE_SET_WIRE;
+    setHint("Click on two connection point to connect them with a wire" );
+    clearPoints(); 
+}
+
+function setResistorCallback()       
+{
+    CurrentMode = MODE_SET_RESISTOR; 
+    setHint("Click on two connection points to set a resistor" );
+    clearPoints(); 
+}
+
+function setCapacitorCallback()       
+{
+    CurrentMode = MODE_SET_CAPACITOR; 
+    setHint("Click on two connection points to set a capacitor" );
+    clearPoints(); 
+}
+
+function setInductorCallback()       
+{
+    CurrentMode = MODE_SET_INDUCTOR; 
+    setHint("Click on two connection points to set a inductor" );
+    clearPoints(); 
+}
+
+function setDiodeCallback()       
+{
+    CurrentMode = MODE_SET_DIODE; 
+    setHint("Click on two connection points to set a diode" );
+    clearPoints(); 
+}
+
+function setTransistorCallback()       
+{
+    CurrentMode = MODE_SET_TRANSISTOR; 
+    setHint("Click on connection points for collector, base and emitter (in this sequence) to set a transistor" );
+    clearPoints(); 
+}
+
+function setSourceCallback()       
+{
+    CurrentMode = MODE_SET_SOURCE; 
+    setHint("Select a connection point to connect it to a voltage" );
+    clearPoints(); 
+}
+
+function setGroundCallback()       
+{
+    CurrentMode = MODE_SET_GROUND; 
+    setHint("Select a connection point to connect it to ground (0V)" );
+    clearPoints(); 
+}
+
+
+
+function changeParametersCallback() 
+{
+    CurrentMode = MODE_PARAMETERS;     
+    setHint( "Click on the element to see/change its parameters" );
+    clearPoints(); 
+} 
+
+function deleteElementCallback()    
+{
+    CurrentMode = MODE_DELETE_ELEMENT; 
+    setHint("Click on the element to delete it (note: connection points are deleted with all connected elements)");
+    clearPoints(); 
+}
+
+
+function addAnyTag( x, y, text, tagclass, visible )
+{
+    const tag = addCenteredTag( x, y, 40, 20, "rgba(255,255,255,0", 0 );
+    tag.classList.add(tagclass);
+    tag.style.display = visible ? "block" : "none";
+    tag.innerHTML = text;
+
+    return tag;
+}
+  
+function addLabelTag( x, y, text, elementId, elementType,  visible )
+{
+  const label_tag = addAnyTag( x + 20, y + 15, text, "label", visible ); 
+
+  if( elementId != "" )
+  {
+    label_tag.onclick = function(event) { onElementClick(event, elementId, elementType ); }    
+  }
+  return label_tag;
+}
+
+
+
+
+function addResultTag( x, y, angle, text, RR )
+{
+
+    let R = RR;
+    if( typeof RR != "number") R = Math.abs(Math.sin(angle)) < 0.1 ? 20 : 40;   
+
+
+    const dy = - R*Math.cos(angle);
+    const dx =   R*Math.sin(angle);
+
+    return addAnyTag( x + dx, y+dy, text, "result", document.getElementById("SWITCH_RESULTS").checked )
+}
+
+
+function addResultNameTag( x, y, angle, text, RR  )
+{
+    let R = RR;
+    if( typeof RR != "number" ) R = Math.abs(Math.sin(angle)) < 0.1 ? 30 : 10;
+
+    const dy =    R*Math.cos(angle);
+    const dx =  - R*Math.sin(angle);
+
+    return addAnyTag( x + dx, y+dy, resultNameHTML(text), "result_name", document.getElementById("SWITCH_RESULT_NAMES").checked  )
+}
+
+function addArrow( x, y, angle, visible )
+{
+    const tag = addCenteredTag( x , y , 20, 10, "rgba(255,255,255,0)", angle );
+    tag.innerHTML = svgLine(20,10,"M 0,5 L 20,5 L 15,0 M 15,10 L 20,5"); 
+    tag.style.display = visible ? "block" : "none";
+    tag.classList.add("arrow");
+
+    return tag;
+}
+
+// ----------------------------
+
+function forEachConnectedElement( connectionPointId, fn )
+{
+    ElementList.filter( el => el.points.includes( connectionPointId ) ).forEach( obj => fn( obj ) );
+
+
+}
+
+
+//--------- service functions
+
+function addConnectionPoint( x, y )
+{
+   const Pname = uniqueElementName( ConnectionPoints, "P" )
+   const taglist = drawConnectionPoint( x, y, Pname, "", "");
+
+   ConnectionPoints.push( { name: Pname
+   						  , type: CONNECTION_POINT
+                          , x:x
+                          , y:y
+                          , taglist:taglist
+                          , params:[]
+                          , potName: ""
+                          , potential : ""
+                          , updateResults : (obj, val, str ) => { 
+                                    obj.potential = val; 
+                                    obj.potentialName = str; 
+                                    obj.taglist.result.innerHTML = nominal2str(val,"V");
+                                    obj.taglist.result_name.innerHTML = resultNameHTML( str );
+                                }
+                          , draw : function(obj) {
+                                     return drawConnectionPoint( obj.x
+                                                               , obj.y
+                                                               , obj.name
+                                                               , obj.potential
+                                                               , obj.potName
+                                                               ); 
+                                 }
+                           }   );
+
+}
+
+
+function drawConnectionPoint( x, y, Pname , result, result_name )
+{
+   const tag = addCenteredTag(x,y,10,10,"#505050");
+
+   const result_tag = addResultTag( x, y+10, Math.PI/2, nominal2str(result,"V") )
+   const result_name_tag = addResultNameTag(x,y+10, Math.PI/2, result_name )
+
+   tag.onclick = function(event) { onElementClick(event, Pname, CONNECTION_POINT); }
+
+   tag.style.zIndex = 10;
+
+   const label_tag = addLabelTag( x, y, Pname, Pname,CONNECTION_POINT, document.getElementById("SWITCH_LABELS").checked )  
+
+   return {all:[tag, label_tag, result_tag, result_name_tag ], result:result_tag, result_name: result_name_tag };
+
+}
+
+function deleteElement(elementId, elementType)
+{
+
+
+    let list = listByType( elementType );
+
+    if( list === null ) return;
+
+    const found_list = list.filter( obj => obj.name == elementId ) 
+
+    if( found_list.length != 1 ) return;
+
+    found = found_list[0];
+    removeTags( found.taglist.all );
+
+    const id = list.indexOf(found)
+    list = list.splice( id, 1 )
+
+    if( elementType === CONNECTION_POINT )
+    {
+       forEachConnectedElement( elementId, obj => deleteElement( obj.name, obj.type ) );
+    }
+
+
+
+}
+
+function movePoint( id, x, y )
+{
+    const found_list =  ConnectionPoints.filter( obj => obj.name == id )
+    if( found_list.length != 1 ) return;
+
+    let P = found_list[0];
+
+    P.x = x; 
+    P.y = y;
+
+    updateElement( P );
+}
+
+
+function nominal2str( nominal, suffix="" )
+{
+    if( typeof nominal != "number" ) return "";
+
+    let sign = "";
+    if( nominal < 0 )
+    {
+        nominal = -nominal;
+        sign = "-";
+    }
+
+    if( nominal < 1e-14 ) return "0" + suffix;
+
+    let prefix = "";
+    let multiplier = 1;
+
+    if( nominal < 1e-9 )
+    {
+        prefix = "p";
+        multiplier = 1e12; 
+    }
+    else if (nominal < 1e-6)
+    {
+        prefix = "n";
+        multiplier = 1e9;
+    }
+    else if ( nominal < 1e-3 )
+    {
+        prefix = "μ";
+        multiplier = 1e6;
+    }
+    else if ( nominal < 1 )
+    {
+        prefix = "m";
+        multiplier = 1e3;
+    }
+    else if ( nominal < 1000 )
+    {
+        prefix = "";
+        multiplier = 1;
+    }
+    else if ( nominal < 1e6 )
+    {
+        prefix = "K";
+        multiplier = 1e-3;
+    }
+    else 
+    {
+        prefix = "M";
+        multiplier = 1e-6;
+    }
+
+    const val = Math.round( nominal * multiplier * 10 ) / 10;
+
+    return sign + val + prefix + suffix;
+
+}
+
+function addWire( id1, id2 )
+{
+    const wireName = uniqueElementName( ElementList, "W" );
+    const taglist = drawWire( wireName, id1, id2 );
+
+    ElementList.push( { name:wireName
+    				  , type: WIRE
+    				  , points: [id1, id2]
+                      , taglist:taglist
+                      , params:[]
+                      , updateResults : (obj,val, str ) => {}
+                      , draw: function( obj ) {return drawWire( obj.name, obj.points[0], obj.points[1] ) } 
+                    } )
+}
+
+
+function drawWire( wireName, id1, id2 )
+{
+    const found_list = ConnectionPoints.filter( obj => obj.name === id1 || obj.name === id2 );
+
+    if( found_list === null || found_list.length != 2 ) return;
+
+    const P1 = found_list[0];
+    const P2 = found_list[1];
+
+    const C = midPoint( P1, P2 );
+
+    const wire_tag = addWireTag(P1,P2)
+
+    const label_tag = addLabelTag( C.x, C.y, wireName, wireName, WIRE,  document.getElementById("SWITCH_LABELS").checked );
+
+    wire_tag.onclick = function(event) { onElementClick(event,wireName,WIRE); }
+
+    return {all:[wire_tag, label_tag ]}
+}
+
+
+function addResistor(id1, id2 )
+{
+    const rName = uniqueElementName( ElementList, "R" );
+    const resistance = 100;
+
+
+    const tags = drawResistor(rName,resistance,id1,id2,"","");
+
+    ElementList.push( { name:rName
+    				  , type: RESISTOR
+                      , points: [id1, id2]
+                      , taglist: tags
+                      , params: { resistance:resistance }
+                      , currentName : ""
+                      , current : ""
+                      , updateResults : (obj,val, str ) => { 
+                                    obj.current = val; 
+                                    obj.currentName = str; 
+                                    obj.taglist.result.innerHTML = nominal2str( val , "A");
+                                    obj.taglist.result_name.innerHTML = resultNameHTML( str );
+                                }
+                      , draw : function(obj) { return drawResistor( obj.name
+                                                                  , obj.params.resistance
+                                                                  , obj.points[0]
+                                                                  , obj.points[1]
+                                                                  , obj.current
+                                                                  , obj.currentName ); 
+                               }
+                       } )
+}
+
+
+function drawResistor(rName,resistance,id1,id2,result, result_name )
+{
+    const found_list1 = ConnectionPoints.filter( obj => obj.name === id1 );
+    const found_list2 = ConnectionPoints.filter( obj => obj.name === id2 );
+
+    if( found_list1 === null ||  found_list2 === null || found_list1.length != 1 || found_list2.length != 1 ) return {all:[],result:{},result_name:{}};
+
+    const P1 = found_list1[0];
+    const P2 = found_list2[0];
+
+    const C = midPoint( P1, P2 );
+    const text = nominal2str(resistance)
+
+    let rtags = addElementBox(P1,P2,50,20, text  )
+
+    const label_tag = addLabelTag( C.x + 10, C.y +10, rName, rName, RESISTOR, document.getElementById("SWITCH_LABELS").checked );
+
+    rtags.all.push( label_tag );
+    rtags.label = label_tag;
+
+    const alpha = Math.atan2( P2.y - P1.y, P2.x-P1.x);
+
+    const dy = - 20 * Math.cos(alpha);
+    const dx =   20 * Math.sin(alpha);
+
+    const swa = document.getElementById("SWITCH_ARROWS");
+    
+    const arrow_tag = addArrow( C.x + dx, C.y  + dy , alpha,  swa.checked );
+    const result_tag = addResultTag( C.x, C.y, alpha, nominal2str(result,"A") )
+    const result_name_tag = addResultNameTag(C.x,C.y, alpha, result_name )
+
+    rtags.arrow = arrow_tag;
+    rtags.result = result_tag;
+    rtags.result_name = result_name_tag;
+
+    rtags.all.push( arrow_tag );
+    rtags.all.push( result_tag );
+    rtags.all.push( result_name_tag );
+
+
+    rtags.centralTag.onclick = function(event) { onElementClick(event,rName,RESISTOR); }
+    rtags.centralTag.style.borderWidth = "1px";
+    rtags.centralTag.style.borderStyle = "solid";
+
+    return rtags;
+}
+
+
+
+function addCapacitor(id1, id2 )
+{
+    const name = uniqueElementName( ElementList, "C" );
+    const capacity = 1e-6;
+
+
+    const tags = drawCapacitor( name,capacity,id1,id2,"","");
+
+    ElementList.push( { name:name
+    				  , type: CAPACITOR 
+                      , points: [id1, id2]
+                      , taglist: tags
+                      , params: { capacity:capacity }
+                      , currentName : ""
+                      , current : ""
+                      , updateResults : (obj,val, str ) => { 
+                                    obj.current = val; 
+                                    obj.currentName = str; 
+                                    obj.taglist.result.innerHTML = nominal2str( val , "A");
+                                    obj.taglist.result_name.innerHTML = resultNameHTML( str );
+                                }
+                      , draw : function(obj) { return drawCapacitor( obj.name
+                                                                  , obj.params.capacity
+                                                                  , obj.points[0]
+                                                                  , obj.points[1]
+                                                                  , obj.current
+                                                                  , obj.currentName ); 
+                               }
+                       } )
+}
+
+
+function drawCapacitor( name, capacity,id1,id2,result, result_name )
+{
+    const found_list1 = ConnectionPoints.filter( obj => obj.name === id1 );
+    const found_list2 = ConnectionPoints.filter( obj => obj.name === id2 );
+
+    if( found_list1 === null ||  found_list2 === null || found_list1.length != 1 || found_list2.length != 1 ) return {all:[],result:{},result_name:{}};
+
+    const P1 = found_list1[0];
+    const P2 = found_list2[0];
+
+    const C = midPoint( P1, P2 );
+    const text = svgLine(10,20, "M 0,0 L 0,20 M 10,0 L 10,20", 4 ); // nominal2str(resistance)
+
+    let rtags = addElementBox(P1,P2,10,20, text );
+    
+
+
+    const alpha = Math.atan2( P2.y - P1.y, P2.x-P1.x);
+    const dy = - 15 * Math.cos(alpha);
+    const dx =   15 * Math.sin(alpha);
+
+    let ctag = addCenteredTag( C.x + 2*dx, C.y + 2*dy, 20, 10, "rgba(255,255,255,0)", alpha );
+    ctag.innerHTML = nominal2str( capacity, "F" );
+    ctag.classList.add("nominalValue")
+
+    rtags.all.push( ctag )
+
+    const label_tag = addLabelTag( C.x + 10, C.y +10, name, name, CAPACITOR, document.getElementById("SWITCH_LABELS").checked );
+
+    rtags.all.push( label_tag );
+    rtags.label = label_tag;
+
+    const swa = document.getElementById("SWITCH_ARROWS");
+    
+    const arrow_tag = addArrow( C.x + dx, C.y  + dy , alpha,  swa.checked );
+    const result_tag = addResultTag( C.x, C.y, alpha, nominal2str(result,"A") )
+    const result_name_tag = addResultNameTag(C.x,C.y, alpha, result_name )
+
+    rtags.arrow = arrow_tag;
+    rtags.result = result_tag;
+    rtags.result_name = result_name_tag;
+
+    rtags.all.push( arrow_tag );
+    rtags.all.push( result_tag );
+    rtags.all.push( result_name_tag );
+
+
+    rtags.centralTag.onclick = function(event) { onElementClick(event,name,CAPACITOR); }
+    rtags.centralTag.style.borderStyle = "none";
+
+    return rtags;
+}
+
+
+
+function addInductor(id1, id2 )
+{
+    const name = uniqueElementName( ElementList, "L" );
+    const inductivity = 1e-6;
+
+
+    const tags = drawInductor( name,inductivity,id1,id2,"","");
+
+    ElementList.push( { name:name
+    				  , type: INDUCTOR 
+                      , points: [id1, id2]
+                      , taglist: tags
+                      , params: { inductivity: inductivity }
+                      , currentName : ""
+                      , current : ""
+                      , updateResults : (obj,val, str ) => { 
+                                    obj.current = val; 
+                                    obj.currentName = str; 
+                                    obj.taglist.result.innerHTML = nominal2str( val , "A");
+                                    obj.taglist.result_name.innerHTML = resultNameHTML( str );
+                                }
+                      , draw : function(obj) { return drawInductor( obj.name   
+                                                                  , obj.params.inductivity
+                                                                  , obj.points[0]
+                                                                  , obj.points[1]
+                                                                  , obj.current
+                                                                  , obj.currentName ); 
+                               }
+                       } )
+}
+
+
+function drawInductor( name, inductivity,id1,id2,result, result_name )
+{
+    const found_list1 = ConnectionPoints.filter( obj => obj.name === id1 );
+    const found_list2 = ConnectionPoints.filter( obj => obj.name === id2 );
+
+    if( found_list1 === null ||  found_list2 === null || found_list1.length != 1 || found_list2.length != 1 ) return {all:[],result:{},result_name:{}};
+
+    const P1 = found_list1[0];
+    const P2 = found_list2[0];
+
+    const C = midPoint( P1, P2 );
+    const text = svgLine(40,10, "M 0,10 A 5,10 0 0,1 10,10 A 5,10 0 0,1 20,10 A 5,10 0 0,1 30,10 A 5,10 0 0,1 40,10", 2 ); // nominal2str(resistance)
+
+    let rtags = addElementBox(P1,P2,40,10, text );
+    
+
+
+    const alpha = Math.atan2( P2.y - P1.y, P2.x-P1.x);
+    const dy = - 15 * Math.cos(alpha);
+    const dx =   15 * Math.sin(alpha);
+
+    let ctag = addCenteredTag( C.x + 2*dx, C.y + 2*dy, 20, 10, "rgba(255,255,255,0)", alpha );
+    ctag.innerHTML = nominal2str( inductivity, "H" );
+    ctag.classList.add("nominalValue")
+
+    rtags.all.push( ctag )
+
+    const label_tag = addLabelTag( C.x + 10, C.y +10, name, name, INDUCTOR, document.getElementById("SWITCH_LABELS").checked );
+
+    rtags.all.push( label_tag );
+    rtags.label = label_tag;
+
+    const swa = document.getElementById("SWITCH_ARROWS");
+    
+    const arrow_tag = addArrow( C.x + dx, C.y  + dy , alpha,  swa.checked );
+    const result_tag = addResultTag( C.x, C.y, alpha, nominal2str(result,"A") )
+    const result_name_tag = addResultNameTag(C.x,C.y, alpha, result_name )
+
+    rtags.arrow = arrow_tag;
+    rtags.result = result_tag;
+    rtags.result_name = result_name_tag;
+
+    rtags.all.push( arrow_tag );
+    rtags.all.push( result_tag );
+    rtags.all.push( result_name_tag );
+
+
+    rtags.centralTag.onclick = function(event) { onElementClick(event,name, INDUCTOR); }
+    rtags.centralTag.style.borderStyle = "none";
+
+    return rtags;
+}
+
+
+
+function addDiode(id1, id2 )
+{
+    const name = uniqueElementName( ElementList, "D" );
+  
+    const tags = drawDiode( name,id1,id2,"","");
+
+    ElementList.push( { name:name
+    				  , type: DIODE 
+                      , points: [id1, id2]
+                      , taglist: tags
+                      , params: { }
+                      , currentName : ""
+                      , current : ""
+                      , updateResults : (obj,val, str ) => { 
+                                    //obj.current = val; 
+                                    //obj.currentName = str; 
+                                    //obj.taglist.result.innerHTML = nominal2str( val , "A");
+                                    //obj.taglist.result_name.innerHTML = resultNameHTML( str );
+                                }
+                      , draw : function(obj) { return drawDiode( obj.name   
+                                                               , obj.points[0]
+                                                               , obj.points[1]
+                                                               , obj.current
+                                                               , obj.currentName ); 
+                               }
+                       } )
+}
+
+
+function drawDiode( name, id1,id2,result, result_name )
+{
+    const found_list1 = ConnectionPoints.filter( obj => obj.name === id1 );
+    const found_list2 = ConnectionPoints.filter( obj => obj.name === id2 );
+
+    if( found_list1 === null ||  found_list2 === null || found_list1.length != 1 || found_list2.length != 1 ) return {all:[],result:{},result_name:{}};
+
+    const P1 = found_list1[0];
+    const P2 = found_list2[0];
+
+    const C = midPoint( P1, P2 );
+    const text = svgLine(10,20, "M 0,0 L 10,10 L 0,20 L 0,0 M 10,0 L 10,20", 2 ); // nominal2str(resistance)
+
+    let rtags = addElementBox(P1,P2,10,20, text );
+    
+    const alpha = Math.atan2( P2.y - P1.y, P2.x-P1.x);
+    const dy = - 15 * Math.cos(alpha);
+    const dx =   15 * Math.sin(alpha);
+
+    //let ctag = addCenteredTag( C.x + 2*dx, C.y + 2*dy, 20, 10, "rgba(255,255,255,0)", alpha );
+    //ctag.innerHTML = nominal2str( inductivity, "H" );
+    //ctag.classList.add("nominalValue")
+
+    //rtags.all.push( ctag )
+
+    const label_tag = addLabelTag( C.x + 10, C.y +10, name, name, DIODE, document.getElementById("SWITCH_LABELS").checked );
+
+    rtags.all.push( label_tag );
+    rtags.label = label_tag;
+
+    //const swa = document.getElementById("SWITCH_ARROWS");
+    
+    //const arrow_tag = addArrow( C.x + dx, C.y  + dy , alpha,  swa.checked );
+    //const result_tag = addResultTag( C.x, C.y, alpha, nominal2str(result,"A") )
+    //const result_name_tag = addResultNameTag(C.x,C.y, alpha, result_name )
+
+    //rtags.arrow = arrow_tag;
+    //rtags.result = result_tag;
+    //rtags.result_name = result_name_tag;
+
+    //rtags.all.push( arrow_tag );
+    //rtags.all.push( result_tag );
+    //rtags.all.push( result_name_tag );
+
+
+    rtags.centralTag.onclick = function(event) { onElementClick(event,name, DIODE ); }
+    rtags.centralTag.style.borderStyle = "none";
+
+    return rtags;
+}
+
+
+                       // id1 - collector, id2 - base, id3 - emitter 
+function addTransistor(id1, id2, id3 )
+{
+    const name = uniqueElementName( ElementList, "T" );
+  
+    const tags = drawTransistor( name,id1,id2, id3, "","", "", "");
+
+    const Rbe = 100;      // resistance base - emitter
+    const VbeOpen = 0.6;  // if VBE < VBEopen transistor is closed
+    const alpha = 10;     //
+    				      // if transistor is opened, then resistance collector-emitter is such, 
+    				      // that current collector-Emitter is alpha times larger than the current base-emitter
+  	const RceMin = 1;     // minimal resistance collector-emitter if the transistor is open
+
+  	/// the model is such:
+  	/// we have phiC, phiB, phiE - potentials of the collector, base and emitter on the previous step
+  	/// if ( phiB - phiE < VBEopen) transistor is closed, there are no connections between the base, emmitter and collector
+  	/// if ( phiB - phiE >= VBEopen) transistor is opened
+  	/// then we set  resistance Rbe between base and emitter, and calculate resistance between collector and emitter Rce )
+  	/// if phiC < phiE the points are just disconnected, Rce = infinity
+  	/// otherwise  we want to have Ice = alpha*Ibe = alpha * ( phiB - phiE ) / Rbe 
+  	///  Ice = (phiC - phiE) / Rce = alpha * (phiB - phiE ) / Rbe
+  	/// and we get 
+  	///          Rce =  (phiC - phiE ) * Rbe / alpha / (phiB - phiE)
+    /// 
+    /// however, if phiC - phiE is small, Rce can be small too 
+    /// that's why we have RCEmin - minimum resistance between collector and base
+    /// 
+    /// so, the final formula Rce = min( RCEmin, Uce/Ube * Rbe / alpha )
+    ///
+
+    ElementList.push( { name:name
+    				  , type: TRANSISTOR 
+                      , points: [id1, id2, id3]
+                      , taglist: tags
+                      , params: { Rbe : Rbe, RceMin: RceMin, VbeOpen: VbeOpen,  alpha : alpha  }
+                      
+                      //, currentName : ""
+                      //, current : ""
+                      , currentCE_Name : ""
+                      , currentCE : ""
+                      , currentBE_Name : ""
+                      , currentBE : "" 
+                      , updateResultsCE : (obj, ice, ice_name) => { 
+                                    obj.currentCE = ice; 
+                                    obj.currentCE_Name = ice_name;
+                               
+                                    obj.taglist.ice.innerHTML = nominal2str( ice, "A" );
+                                    obj.taglist.ice_name.innerHTML = resultNameHTML( ice_name );
+                                }
+                      , updateResultsBE : ( obj, ibe, ibe_name ) => {
+     								obj.currentBE = ibe;
+                            		obj.currentBE_Name = ibe_name;
+
+                            		obj.taglist.ibe.innerHTML = nominal2str( ibe, "A" );
+    								obj.taglist.ibe_name.innerHTML = resultNameHTML( ibe_name );
+                      			}
+                      , draw : function(obj) { return drawTransistor( obj.name   
+                                                                    , obj.points[0]
+                                                                    , obj.points[1]
+                                                                    , obj.points[2]
+                                                                    , obj.currentCE
+                                                                    , obj.currentCE_Name
+                                                                    , obj.currentBE
+                                                                    , obj.currentBE_Name
+                                                                     ); 
+                               }
+                       } )
+}
+
+
+function positiveAngle( ang )
+{
+	while( ang < 0 ) ang += 2* Math.PI;
+	while( ang > 2*Math.PI) ang -= 2*Math.PI;
+
+	return ang;
+}
+
+
+function angleDifference( ang1, ang2 )
+{
+	const dang = positiveAngle(ang1) - positiveAngle(ang2);
+
+	if( dang > Math.PI ) return dang - 2*Math.PI;
+	if( dang < -Math.PI ) return dang + 2*Math.PI;
+
+	return dang; 
+
+}
+
+
+
+function drawTransistor( name, id1,id2, id3, currentCE, currentCE_Name, currentBE, currentBE_Name )
+{
+  //  const found_list1 = ConnectionPoints.filter( obj => obj.name === id1 );
+  //  const found_list2 = ConnectionPoints.filter( obj => obj.name === id2 );
+  // const found_list3 = ConnectionPoints.filter( obj )
+
+  //  if( found_list1 === null ||  found_list2 === null || found_list1.length != 1 || found_list2.length != 1 ) return {all:[],result:{},result_name:{}};
+
+    const P1 = findPoint(id1);
+    const P2 = findPoint(id2);
+    const P3 = findPoint(id3);
+
+    //const C = midPoint( P1, P2 );
+
+    const C = midPoint3( P1, P2, P3 );
+
+
+    //  P1                     
+    //
+    //       P1'
+    //      /   \
+    //  P3 P3'.  P2'            P2                
+    //      \___/
+    //
+    //  
+
+
+    //        _____    alpha1
+    //       /    _\P1
+    //      /    /  \
+    //     |    ._   |
+    //     |    | \__|P2 alpha2
+    //      \   |   /
+    //       \__P3_/
+    //          alpha3
+    //     
+
+    //
+    //                                                        |
+    //   betaBase = (int) ( alpha2 / 0.5*pi ) * 0.5pi :       -- + --
+    //                                                        |
+    //
+    //
+
+    /// cross line with circle of radius R
+
+    //     PR
+    //  C--|----P
+    //
+
+    //const scaleToR = ( P ) => {  CP = subPt(P,C);   return addPt( C, scalePt( CP, R / absValPt(CP) ) );  };
+    
+    // const P1R = 
+
+    const alpha1 = positiveAngle( Math.atan2( P1.y - C.y, P1.x - C.x ) );
+    const alpha2 = positiveAngle( Math.atan2( P2.y - C.y, P2.x - C.x ) );
+    const alpha3 = positiveAngle( Math.atan2( P3.y - C.y, P3.x - C.x ) );
+
+
+    betaBase = Math.round( alpha2 / 0.5 / Math.PI ) * 0.5 * Math.PI;
+
+    dang21 = angleDifference(alpha2, alpha1);
+    dang23 = angleDifference(alpha2, alpha3);
+
+    if( Math.abs(dang21) < Math.abs(dang23) )
+    {
+    	if( dang21 > 0 ) 
+    	{
+    		betaCollector = betaBase - 2*Math.PI / 3;
+    		betaEmitter   = betaBase + 2*Math.PI / 3;
+    	}
+    	else
+    	{
+    		betaCollector = betaBase + 2*Math.PI / 3;
+    		betaEmitter   = betaBase - 2*Math.PI / 3;
+    	}
+    } 
+    else
+    {
+    	if( dang23 > 0 )
+    	{
+    		betaEmitter   = betaBase - 2*Math.PI / 3;
+        	betaCollector = betaBase + 2*Math.PI / 3;
+    	}		
+    	 else
+    	{
+    		betaEmitter   = betaBase + 2*Math.PI / 3;
+        	betaCollector = betaBase - 2*Math.PI / 3;
+    	}
+
+    }
+
+    const RBig = 40;
+    const R = 35;
+    const Rarr = 15;
+    const darr = 0.3;
+
+    const dPB = { x: R*Math.cos(betaBase)      , y: R*Math.sin( betaBase )      };
+    const dPC = { x: R*Math.cos(betaCollector) , y: R*Math.sin( betaCollector ) };
+    const dPE = { x: R*Math.cos(betaEmitter)   , y: R*Math.sin( betaEmitter )   };
+
+    const dC = {x:RBig,y:RBig}
+
+    const PLabel = addPt( C, { x: (R+10)*Math.cos(betaBase+Math.PI), y: (R+10)*Math.sin(betaBase+Math.PI) } )
+
+    const PicLabel = addPt( C, { x: (R+20)*Math.cos(betaCollector + 0.3), y: (R+20)*Math.sin(betaCollector + 0.3 ) } )
+    const PicValue = addPt( C, { x: (R+20)*Math.cos(betaCollector - 0.3), y: (R+20)*Math.sin(betaCollector - 0.3 ) } )
+
+    const PibLabel = addPt( C, { x: (R+10)*Math.cos(betaBase + 0.3 ), y: (R+10)*Math.sin(betaBase + 0.3 ) } )
+    const PibValue = addPt( C, { x: (R+10)*Math.cos(betaBase - 0.3 ), y: (R+10)*Math.sin(betaBase - 0.3 ) } )
+
+    const dPBar1 = { x: R*Math.cos(betaBase - 0.5*Math.PI)      , y: R*Math.sin( betaBase -0.5*Math.PI)      };
+    const dPBar2 = { x: R*Math.cos(betaBase + 0.5*Math.PI)      , y: R*Math.sin( betaBase + 0.5*Math.PI)      };
+
+    const dPEarrowPlus = { x: Rarr*Math.cos(betaEmitter + darr)   , y: Rarr*Math.sin( betaEmitter + darr )   };
+    const dPEarrowMinus = { x: Rarr*Math.cos(betaEmitter - darr)   , y: Rarr*Math.sin( betaEmitter - darr )   };
+
+   
+    const text = '<svg width="' + 2*RBig + '" height="' + 2*RBig + '">' +
+                       '<path stroke="black" fill="none" stroke-width="2" d="' + 
+     							  " M " + dC.x + "," + dC.y + " L " + addPt(dC,dPB).x + "," + addPt(dC,dPB).y +
+                                  " M " + dC.x + "," + dC.y + " L " + addPt(dC,dPC).x + "," + addPt(dC,dPC).y +
+                                  " M " + dC.x + "," + dC.y + " L " + addPt(dC,dPE).x + "," + addPt(dC,dPE).y +
+								  " M " + addPt(dC,dPE).x + "," + addPt(dC,dPE).y + " L " + addPt(dC,dPEarrowPlus).x + "," + addPt(dC,dPEarrowPlus).y +
+								  " M " + addPt(dC,dPE).x + "," + addPt(dC,dPE).y + " L " + addPt(dC,dPEarrowMinus).x + "," + addPt(dC,dPEarrowMinus).y +
+								  " M " + addPt(dC,dPBar1).x + "," + addPt(dC,dPBar1).y + " L " + addPt(dC,dPBar2).x + "," + addPt(dC,dPBar2).y +
+                       '" />' +
+		               '<circle cx="' + dC.x +'" cy="' + dC.y + '" r="' + R + '" stroke="black" stroke-width="3" fill="none" />' +
+		               '</svg>';
+    
+    
+
+    const el    = addCenteredTag(C.x,C.y,2*RBig,2*RBig,"rgba(255,255,255,0)",0);
+
+   el.style.display = "table";
+   el.innerHTML = "<div style='display:table-cell;vertical-align:middle;text-align:center' class='nominal' >" + text + "  </div>";
+
+   const X1 = addPt(C,dPC);
+   const X2 = addPt(C,dPB);
+   const X3 = addPt(C,dPE);
+
+   const wire1 = addWireTag(P1,X1);
+   const wire2 = addWireTag(P2,X2);
+   const wire3 = addWireTag(P3,X3);
+
+   rtags = {all:[ wire1, wire2, wire3, el ], centralTag:el }
+
+   const label_tag = addLabelTag( PLabel.x , PLabel.y +10, name, name, TRANSISTOR, document.getElementById("SWITCH_LABELS").checked );
+
+   rtags.all.push( label_tag );
+   rtags.label = label_tag;
+
+   const ice = addResultTag( PicValue.x , PicValue.y , 0,  nominal2str(currentCE,"A"), 0 );
+   const ice_name = addResultNameTag( PicLabel.x, PicLabel.y, 0, currentCE_Name, 0 );
+
+   const ibe = addResultTag( PibValue.x , PibValue.y , 0,  nominal2str(currentBE,"A"), 0 );
+   const ibe_name = addResultNameTag( PibLabel.x, PibLabel.y, 0, currentBE_Name, 0 );
+
+   rtags.ice = ice;
+   rtags.ice_name = ice_name;
+   rtags.ibe = ibe;
+   rtags.ibe_name = ibe_name;
+
+   rtags.all.push( ice )
+   rtags.all.push( ice_name )
+   rtags.all.push( ibe )
+   rtags.all.push( ibe_name )
+
+   rtags.centralTag.onclick = function(event) { onElementClick(event,name, TRANSISTOR ); }
+   rtags.centralTag.style.borderStyle = "none";
+
+   return rtags;
+}
+
+
+
+
+
+
+
+
+
+function addSource( elementId )
+{
+    const voltage = 5;
+    const name = uniqueElementName( ElementList, "S" );
+    const tags = drawSource( name, elementId, voltage, "", "" );
+
+    ElementList.push( { name:name
+    				  , type: SOURCE 
+                      , points: [ elementId ]
+                      , taglist: tags
+                      , params: { voltage:voltage }
+                      , currentName : ""
+                      , current : ""
+                      , updateResults : (obj,val, str ) => { 
+                                    obj.current = val; 
+                                    obj.currentName = str; 
+                                    obj.taglist.result.innerHTML = nominal2str(val,"A");
+                                    obj.taglist.result_name.innerHTML =resultNameHTML( str )
+                                }
+                      , draw : function(obj) { return drawSource(obj.name, obj.points[0], obj.params.voltage, obj.current, obj.currentName  ); }
+                       } );
+}
+
+function drawSource( name, elementId, voltage, result, result_name  )
+{
+    const found_list = ConnectionPoints.filter( obj => obj.name == elementId );
+    if( found_list.length != 1) return [];
+
+    const P = found_list[0];
+
+    const tag = addCenteredTag( P.x, P.y - 30, 40, 20, "rgba(255,255,255,1)", 0 ); 
+
+    const angle = Math.PI/2;
+
+    //const artag = addArrow( P.x + 30, P.y - 30, angle, document.getElementById("SWITCH_ARROWS").checked);
+    const result_tag = addResultTag( P.x, P.y-30, angle, nominal2str(result,"A") )
+    const result_name_tag = addResultNameTag( P.x-10, P.y-30, angle, result_name )
+
+
+    tag.onclick = function (event) { onElementClick(event,name,SOURCE ); }
+
+    tag.innerHTML = "" + voltage + " V";
+
+
+    return {all:[tag, result_tag, result_name_tag], result:result_tag, result_name: result_name_tag };
+}
+
+function addGround( elementId )
+{
+    const name = uniqueElementName( ElementList, "G" );
+    const tags = drawGround( name, elementId , "", "");
+
+    ElementList.push( { name:name
+    				  , type: GROUND	
+                      , points:[ elementId ]
+                      , taglist: tags
+                      , params: { }
+                      , currentName : ""
+                      , current : ""
+                       , updateResults : (obj,val, str ) => { 
+                                    obj.current = val; 
+                                    obj.currentName = str; 
+                                    obj.taglist.result.innerHTML = nominal2str(val,"A");
+                                    obj.taglist.result_name.innerHTML = resultNameHTML( str );
+                                }
+                      , draw : function(obj) { return drawGround(obj.name, obj.points[0], obj.current, obj.currentName ); }
+                       } );
+}
+
+function drawGround( name, elementId, result, result_name )
+{
+    const found_list = ConnectionPoints.filter( obj => obj.name == elementId );
+    if( found_list.length != 1) return [];
+
+    const P = found_list[0];
+
+    const tag = addCenteredTag( P.x, P.y + 25, 40, 40, "rgba(255,255,255,0)", 0 ); 
+
+    const angle = Math.PI/2;
+   // const artag = addArrow( P.x + 30, P.y + 25, angle, document.getElementById("SWITCH_ARROWS").checked);
+    const result_tag = addResultTag( P.x, P.y +25, angle, nominal2str(result,"A") )
+    const result_name_tag = addResultNameTag( P.x-10, P.y+25, angle, result_name )
+
+
+    tag.onclick = function (event) { onElementClick(event,name,GROUND); }
+
+    tag.innerHTML = svgLine( 40, 40,"M 20,0 L 20,20 M 0,20 L 40,20 M 10,30 L 30,30" );
+
+    return { all:[tag,  result_tag, result_name_tag], result: result_tag, result_name: result_name_tag };
+}
+
+
+
+function updateElement( el )
+{
+    removeTags( el.taglist.all );
+
+    el.taglist = el.draw( el );
+
+    if( el.type === CONNECTION_POINT  )
+    {
+        forEachConnectedElement( el.name, obj => updateElement(obj) );
+    }
+}
+
+
+//--------- click callbacks 
+
+function onElementClick( event, elementId, elementType ) 
+{
+
+    let elName ="";
+
+ //   console.log("onElementClick elementId = " + elementId + " elementType = " + elementType)
+
+
+    switch( CurrentMode )
+    {
+        case MODE_SET_POINT: 
+            
+            break;
+        case MODE_MOVE_POINT:
+
+            if( elementType === CONNECTION_POINT )
+            {
+                SelectedPoints = [elementId];
+                setHint("Select a new position for the point " + elementId);
+            }
+            break;
+        case MODE_SET_WIRE:
+        case MODE_SET_RESISTOR:
+        case MODE_SET_CAPACITOR:
+        case MODE_SET_INDUCTOR:
+        case MODE_SET_DIODE:
+
+            if( CurrentMode == MODE_SET_RESISTOR ) {
+                elName = "resistor";
+            } else if( CurrentMode == MODE_SET_WIRE) {
+                elName = "wire"
+            } else if( CurrentMode == MODE_SET_CAPACITOR ) {
+                elName = "capacitor"                
+            } else if( CurrentMode == MODE_SET_DIODE ) {
+            	elName = "diode"
+        	} else {
+            	elName = "inductor"
+            }
+
+            if( elementType === CONNECTION_POINT )
+            {
+                if(SelectedPoints.length  == 0 )  {
+                    SelectedPoints = [elementId];
+                    setHint( "Point " + elementId + " selected. Select another point to set a " + elName + "." )                
+                }
+                else {
+                    if( elName == "wire"     ) addWire      ( SelectedPoints[0], elementId );
+                    if( elName == "resistor" ) addResistor  ( SelectedPoints[0], elementId );
+                    if( elName == "capacitor") addCapacitor ( SelectedPoints[0], elementId );
+                    if( elName == "inductor" ) addInductor  ( SelectedPoints[0], elementId );
+                    if( elName == "diode"    ) addDiode     ( SelectedPoints[0], elementId );
+
+                    setHint("New " + elName + " added.")
+                    clearPoints();
+                }
+            }
+
+            break;
+
+        case MODE_SET_TRANSISTOR:
+
+        	if( elementType === CONNECTION_POINT )
+        	{
+        		if( SelectedPoints.length == 0 )
+        		{
+        				SelectedPoints = [ elementId];
+        				setHint( "Point " + elementId + " selected as collector. Select next point for base." ) 
+        		} else if( SelectedPoints.length == 1 )
+        		{
+        				SelectedPoints.push( elementId );
+        				setHint( "Point " + elementId + " selected as base. Select the point for emitter to set a transistor." ) 
+        		} else
+        		{
+        			addTransistor( SelectedPoints[0], SelectedPoints[1], elementId )
+
+        			setHint( "New transistor added.")
+        			clearPoints();
+
+        		}
+        	}
+
+        	break;
+
+        case MODE_SET_SOURCE:
+
+            if( elementType === CONNECTION_POINT )
+            {
+                addSource( elementId );
+            }
+
+            break;
+        case MODE_SET_GROUND:
+
+            if( elementType === CONNECTION_POINT )
+            {
+                addGround( elementId );
+            }
+
+
+            break;
+        case MODE_PARAMETERS: 
+
+            let list = listByType(elementType);
+            let found_list = list.filter( x => x.name == elementId );
+
+            if( found_list.length == 1 )
+            {
+                let el = found_list[0];
+                if( typeof el.params != "undefined" )
+                {
+                    let cnt = 0;
+                    for( let i in el.params )
+                    {
+                        cnt++;
+                    }
+
+                    if( cnt > 0 )
+                        showParameters(elementId, el.params)
+                }
+            }
+
+
+            break;
+        case MODE_DELETE_ELEMENT:
+            deleteElement( elementId,elementType );
+
+            break;
+    };
+
+}
+
+
+function onCanvasClick(event) 
+{
+
+    const x = Math.round( event.offsetX / 10 ) * 10;
+    const y = Math.round( event.offsetY / 10 ) * 10;
+
+
+    switch( CurrentMode )
+    {
+        case MODE_SET_POINT: 
+            addConnectionPoint( x, y );
+
+            break;
+        case MODE_MOVE_POINT:
+            if( SelectedPoints.length == 1 )
+            {
+                movePoint( SelectedPoints[0], x, y )
+                setHint("The point " + SelectedPoints[0] + " moved to a new position");
+            }
+
+            break;
+        case MODE_SET_WIRE:
+
+
+            break  ;
+        case MODE_SET_RESISTOR:
+
+
+            break;
+        case MODE_PARAMETERS: 
+
+
+            break;
+        case MODE_DELETE_ELEMENT:
+     
+
+            break;
+    };
+
+}
+
+function labelConnectedPotentials( P, potentialName, potentialId  )
+{
+    if( P.potName === "")
+    {
+        P.potName = potentialName;
+        P.potId   = potentialId;
+    
+        ElementList.filter( obj => obj.type === WIRE && obj.points.includes( P.name ) )
+                   .forEach( wire => { wire.points.forEach( pointId => labelConnectedPotentials( 
+                                                                    ConnectionPoints.filter( p => p.name == pointId)[0]
+                                                                  , potentialName
+                                                                  , potentialId 
+                                                                  ) 
+                                                          ) 
+                                     } )
+
+        ElementList.filter( obj => obj.type === DIODE && obj.points.includes( P.name )  )
+                   .forEach( diode => { //console.log("filter DIODE : " + diode.name)
+
+                   						 const P1 = findPoint(diode.points[0])
+                   						 const P2 = findPoint(diode.points[1])
+
+                   						// console.log("P.name = " + P.name + " P1.potential = " + typeof P1.potential + " P2.potential = " + typeof P2.potential )
+
+                   						 if( typeof P1.potential === "number" && typeof P2.potential === "number"
+											 && P1.potential >= P2.potential
+                   						   )
+                   						 {
+                   						 	 if( P1.name === P.name ) 
+                   						 	 {
+                   						 	 	//console.log("labelConnectedPotentials : P2" + P2.name)
+                   						 	 	labelConnectedPotentials( P2, potentialName, potentialId )
+                   						 	 } 	
+
+                   						 	 if( P2.name === P.name )
+                   						   	 {
+                   						        //console.log("labelConnectedPotentials : P1" + P1.name)
+                   						 	 	labelConnectedPotentials( P1, potentialName, potentialId )   	 	
+                   						   	 }
+
+                   						}
+                                      } )
+
+    }
+}
+
+
+function assignPotentialNames()
+{
+
+    let potentialNames = [];
+
+    ConnectionPoints.forEach( p => { p.potName = ""; p.potId = -1;} )
+    let id = 0;
+    for( p of ConnectionPoints )
+    {
+        if( p.potName == "" )
+        {
+            const potName = "Phi" + id ;
+            labelConnectedPotentials( p, potName, id );
+            potentialNames.push( potName );
+
+            id++;
+        }
+    }
+
+    return potentialNames;
+}
+
+function assignCurrentNames()
+{
+    let currentNames = [];
+    let id = 0;
+
+    ElementList.forEach( el => { el.currentName = ""; el.currentId = -1; } );
+
+    for( let el of ElementList )
+    {
+        if(el.type === RESISTOR || el.type === SOURCE || el.type === GROUND || el.type === CAPACITOR || el.type === INDUCTOR )
+        {
+            const currentName = "I" + id;
+            el.currentName = currentName;
+            el.currentId = id;
+            currentNames.push( currentName );
+
+            id++;
+        }
+
+        if( el.type === TRANSISTOR )
+        {
+        	el.currentName = "not used";
+
+        	const currentBE = "I" + id;
+        	el.currentBE_Name = currentBE;
+        	el.currentBE_id = id;
+        	currentNames.push( currentBE );
+
+        	id++;
+
+        	const currentCE = "I" + id;
+        	el.currentCE_Name = currentCE;
+        	el.currentCE_id = id;
+        	currentNames.push( currentCE );
+
+        	id++;
+
+        //	console.log("CurrentBE = " + currentBE + " CurrentCE = " + currentCE )
+        }
+    }
+
+    return currentNames;
+}
+
+
+function buildMatrix(dt)
+{
+    const potentialNames = assignPotentialNames();
+    const currentNames = assignCurrentNames();
+
+    const npot = potentialNames.length;
+    const ncurr = currentNames.length;
+    const N = npot + ncurr;
+
+    let A = zeros(N,N); 
+    let b = zeros(N,1);
+
+    let Aprev = zeros( N, N );
+
+    // bcurr = b + Aprev * xprev 
+
+    // variables are: 
+    // 0..npot-1 =>  potentials
+    // npot... N =>  currents
+
+    // Ohm's law 
+    let i = 0;
+   // for( i=0; i<ncurr; i++ )
+   for( el of ElementList )
+    {
+      //  const el = ElementList.filter( el =>  el.currentName == currentNames[i] )[0];
+        let current_id = 0;
+
+      	if( el.type != TRANSISTOR ) current_id = el.currentId;
+
+        if( el.type === RESISTOR )
+        {
+            // resistor  Phi0 --- R --- Phi1
+  
+            const phi1_id = findPoint(el.points[0]).potId;
+            const phi2_id = findPoint(el.points[1]).potId;
+
+            if( phi1_id != phi2_id )
+            {
+                // U = phi1 - phi2 = IR ==> phi1 - phi2 - I*R = 0 
+                A[i][ phi1_id ] = 1;
+                A[i][ phi2_id ] = -1;
+                A[i][ npot + current_id ] = -el.params.resistance; 
+
+                b[i] = 0 ;
+            } 
+            else  // phi1 = phi2 => useless resistor => current is zero
+            {
+                A[i][npot + current_id ] = 1;
+                b[i] = 0;            
+            }
+            i++;
+        }
+        else if( el.type === SOURCE || el.type === GROUND )
+        {
+            const U = el.type === SOURCE ? el.params.voltage : 0;
+            // for sources we have just phi = U 
+            const phi_id = findPoint( el.points[0]).potId;
+       
+
+            A[i][phi_id] = 1;
+            b[i] = U; 
+            i++;
+        } else if( el.type === CAPACITOR )
+        {
+            const phi1_id = findPoint(el.points[0]).potId;
+            const phi2_id = findPoint(el.points[1]).potId;
+
+            if( phi1_id != phi2_id )
+            {
+            	// q = CU => I = C dU/dt
+            	// C (U - Uprev)/dt = (I + Iprev)/2
+            	// C U - I/2*dt = Iprev/2 dt + C Uprev 
+            	// C phi1 - Cphi2 - I/2 dt =  Iprev/2 dt + C phi1_prev - C phi2_prev 
+
+            	// simpler version
+            	// q = CU
+            	// C (U-Uprev ) /dt = I
+            	// CU - I dt = CUprev
+            	// C phi1 - Cphi2 - I dt = C phi1_prev - C phi2_prev
+
+            	const C = el.params.capacity;
+
+            //	console.log("capacity = "+ C + "  dt = " + dt )
+
+                A[i][ phi1_id ] = C;
+                A[i][ phi2_id ] = -C;
+                A[i][ npot + current_id ] = -0.5*dt; //-dt; 
+
+                Aprev[i][ npot + current_id ] = 0.5*dt ; 0; 
+                Aprev[i][ phi1_id ] = C;
+                Aprev[i][ phi2_id ] = -C; 
+
+                b[i] = 0 ;
+            } 
+            else  // phi1 = phi2 => useless capacitor => current is zero
+            {
+                A[i][npot + current_id ] = 1;
+                b[i] = 0;            
+            }
+            i++;
+
+        } else if( el.type === INDUCTOR ) 
+        {
+            const phi1_id = findPoint(el.points[0]).potId;
+            const phi2_id = findPoint(el.points[1]).potId;
+
+
+
+            if( phi1_id != phi2_id )
+            {
+
+            	const L = el.params.inductivity;
+
+            	// U = L dI/dt
+            	// Udt = L( I - Iprev )
+            	// U dt= L*I - L*Iprev 
+            	//  U dt - L*I = -L*Iprev 
+            	//  phi1 dt - phi2 dt - LI = -LIprev 
+      
+                A[i][ phi1_id ] = +dt;
+                A[i][ phi2_id ] = -dt;
+                A[i][ npot + current_id ] = -L;
+
+                Aprev[i][ npot + current_id ] = -L ;
+                Aprev[i][ phi1_id ] = 0; 
+                Aprev[i][ phi2_id ] = 0; 
+
+/*
+
+			    // U - Uprev = -L dI/dt
+            	// Udt -Uprev*dt = -L( I - Iprev )
+            	// ( U + Uprev) dt/2 - Uprev*dt  = -L*I + L*Iprev 
+         		// 0.5 Udt + 0.5 Uprev dt - U prev dt = -LI + LIprev
+         		// 0.5 Udt - 0.5 Uprev dt = -LI + LIprev
+         		// 0.5 Udt + LI = 0.5Uprevdt + LIprev
+            	// 0.5 phi1 dt - 0.5 phi2 dt + LI = LIprev + 0.5 phi1_prev dt - 0.5 phi2_prev dt 
+
+                A[i][ phi1_id ] = +0.5*dt;
+                A[i][ phi2_id ] = -0.5*dt;
+                A[i][ npot + current_id ] = L;
+
+                Aprev[i][ npot + current_id ] = L ;
+                Aprev[i][ phi1_id ] = +0.5*dt;
+                Aprev[i][ phi2_id ] = -0.5*dt; */
+
+                b[i] = 0 ;
+            } 
+            else  // phi1 = phi2 => useless inductor => current is zero
+            {
+                A[i][npot + current_id ] = 1;
+                b[i] = 0;            
+            }
+            i++;
+
+
+        } else if( el.type === TRANSISTOR ) 
+        {
+
+        	const currentBE_id = el.currentBE_id;
+        	const currentCE_id = el.currentCE_id;
+
+		  	/// the model is such:
+		  	/// we have phiC, phiB, phiE - potentials of the collector, base and emitter on the previous step
+		  	/// if ( phiB - phiE < VBEopen) transistor is closed, there are no connections between the base, emmitter and collector
+		  	/// if ( phiB - phiE >= VBEopen) transistor is opened
+		  	/// then we set  resistance Rbe between base and emitter, and calculate resistance between collector and emitter Rce )
+		  	/// if phiB < phiE the points are just disconnected, Rce = infinity
+		  	/// otherwise  we want to have Ice = alpha*Ibe = alpha * ( phiB - phiE ) / Rbe 
+		  	///  Ice = (phiC - phiE) / Rce = alpha * (phiB - phiE ) / Rbe
+		  	/// and we get 
+		  	///          Rce =  (phiC - phiE ) * Rbe / alpha / (phiB - phiE)
+		    /// 
+		    /// however, if phiC - phiE is small, Rce can be small too 
+		    /// that's why we have RCEmin - minimum resistance between collector and base
+		    /// 
+		    /// so, the final formula Rce = min( RCEmin, Uce/Ube * Rbe / alpha )
+		    ///
+
+		    // params: { Rbe : Rbe, RceMin: RceMin, VbeOopen: VbeOpen,  alpha : alpha  }
+
+		    const PC = findPoint(el.points[0]);
+		    const PB = findPoint(el.points[1]);
+		    const PE = findPoint(el.points[2]);
+
+		    //	 if( typeof P1.potential === "number" && typeof P2.potential === "number"
+			//								 && P1.potential >= P2.potential
+            //       						   )
+
+		    const phiC_id = PC.potId;
+		    const phiB_id = PB.potId;
+		    const phiE_id = PE.potId;
+
+		    const phiC = ( typeof PC.potential === "number" ) ? PC.potential : 0;
+		    const phiB = ( typeof PB.potential === "number" ) ? PB.potential : 0;
+		    const phiE = ( typeof PE.potential === "number" ) ? PE.potential : 0;
+
+
+		    const VbeOpen = el.params.VbeOpen;
+		    const alpha = el.params.alpha;
+		    const Rbe = el.params.Rbe;
+		    const RceMin = el.params.RceMin;
+
+
+		    //console.log( "phiC = " + phiC + " phiB = " + phiB + " phiE = " + phiE + " VbeOpen = " + VbeOpen + " currentBE_id " + currentBE_id + " currentCE_id " + currentCE_id )
+
+
+
+		    if( phiB - phiE < VbeOpen )
+		    {
+		    	// transistor is closed, Ibe = 0, Ice = 0
+		    	A[i][ npot + currentBE_id ] = 1;
+		    	b[i] = 0;
+
+		    	A[ i+1 ][ npot + currentCE_id ] = 1;
+		    	b[ i+1 ] = 0 ;
+
+		    	i+=2;
+			} else 
+			{
+
+		    	// Ibe = ( phiB - phiE ) / Rbe  ==>    1*phiB   -1*phiE    - Rbe*Ibe  = 0
+		    	A[i][ phiB_id ] = 1;
+		    	A[i][ phiE_id ] = -1;
+		    	A[i][ npot + currentBE_id ] = -Rbe;
+
+		    	//console.log("Rbe = " + Rbe )
+
+		    	if( phiC < phiE )
+		   	 	{
+		    		// the points are just disconnected, Rce = infinity,  currentCE = 0 
+		    		A[i+1][ npot + currentCE_id ] = 1;
+		    		b[i+1] = 0;
+		    	}
+		    	else
+		    	{
+		    		let Rce =  (phiC - phiE ) * Rbe / alpha / (phiB - phiE);
+		    		if( Rce < RceMin ) Rce = RceMin;
+
+		    		// console.log( "Rce = " + Rce )
+
+		    		//    1*phiC -1*phiE - Rce*Ice = 0
+		    		A[i+1][ phiC_id ] = 1;
+		    		A[i+1][ phiE_id ] = -1;
+		    		A[i+1][ npot + currentCE_id ] = -Rce;
+
+		    	}
+
+		    	i+=2;
+		    }
+
+        }
+
+    }
+
+    // Kirchhoff's laws
+    for( i=0; i<npot; i++ )
+    {
+        // find all the resistors, capacitors and inductors connected to the points with a given potential id 
+        const connectedElements = ElementList.filter( el => el.points.filter( ptName => findPoint(ptName).potId == i ).length > 0 );
+
+        const activeElements = connectedElements.filter( el =>  el.type === RESISTOR || el.type === CAPACITOR || el.type === INDUCTOR );
+        for( const el of activeElements )
+        {
+            // the current flows from points[0] to points[1] of the element
+            // if the found point is connected to the points[1] then the current is positive, otherwise negative
+            const sign = ( findPoint(el.points[1]).potId == i ? 1 : -1 );
+            // take the current with appropriate sign
+            A[ ncurr + i][ npot + el.currentId ] = sign;
+        }
+
+        // for the sources we add positive currents
+        connectedElements.filter( el => el.type === SOURCE ).forEach( src => A[ncurr+i][ npot + src.currentId ] = 1 )
+        // for the grounds add negative currents 
+        connectedElements.filter( el => el.type === GROUND ).forEach( gnd => A[ncurr+i][ npot + gnd.currentId ] = -1 )
+        
+
+        const transistors = connectedElements.filter( el => el.type === TRANSISTOR );
+        for ( const tr of transistors )
+        {
+        	const PC = findPoint( tr.points[0] )
+        	const PB = findPoint( tr.points[1] )
+        	const PE = findPoint( tr.points[2] )
+
+        	if( PC.potId === i )
+        	{
+        		///  the current flows from the PC
+        		A[ ncurr + i][ npot + tr.currentCE_id ] = -1;
+           	} 
+           	if( PB.potId === i )
+           	{
+           		// the current flows from PB
+           		A[ncurr + i][ npot + tr.currentBE_id] = -1;
+
+           	} 
+           	if( PE.potId === i )
+           	{
+           		//both CE and BE currents flow to emitter
+           		A[ ncurr + i ][ npot + tr.currentCE_id ] = 1;
+           		A[ ncurr + i ][ npot + tr.currentBE_id ] = 1;
+           	}
+
+
+
+        }
+
+
+
+
+        b[ ncurr + i] = 0;
+    }
+
+    return { A:A, Aprev:Aprev, b:b, potentialNames: potentialNames, currentNames: currentNames };
+
+}
+
+function updateElementResults( x, potentialNames, currentNames)
+{
+    const npot = potentialNames.length;
+    const ncurr = currentNames.length;
+
+    for( let i=0; i<potentialNames.length; i++)
+    {
+        let pt_list = ConnectionPoints.filter( pt => pt.potName === potentialNames[i] );
+        for( pt of pt_list )
+        {
+            pt.updateResults( pt, x[i], potentialNames[i] );
+        }
+
+    }
+
+    for( let i=0; i<currentNames.length; i++)
+    {
+        let el_list = ElementList.filter( el => el.currentName === currentNames[i] );
+        for( let el of el_list )
+        {
+        	el.updateResults( el, x[ i + npot ], currentNames[i]);
+        }
+
+        let trce_list = ElementList.filter( el => el.currentCE_Name === currentNames[i])
+        for( let el of trce_list )
+        {
+        	el.updateResultsCE( el, x[ i + npot ], currentNames[i])
+        }
+
+        let trbe_list = ElementList.filter( el => el.currentBE_Name === currentNames[i])
+        for( let el of trbe_list )
+        {
+        	el.updateResultsBE( el, x[ i + npot ], currentNames[i])
+        }
+
+    }
+}
+
+
+
+let ABM  = {}; 
+let x = [];
+
+function countCallback()
+{
+	// clear potentials and currents
+	ConnectionPoints.forEach( p => { p.potential = "";} )
+	ElementList.forEach( el => { el.current = ""; })
+
+    //const Ab 
+    const dt = 1e-6;
+    ABM = buildMatrix(dt);
+
+	fullCountStep();
+
+}
+
+
+function fullCountStep()
+{
+    const potentialNames = ABM.potentialNames;
+    const currentNames = ABM.currentNames;
+ 
+   // print_matrix( "A : b"    , ABM.A    , ABM.b )
+   // print_matrix( "Aprev : b", ABM.Aprev, ABM.b )
+
+    const LUP = lup_decompose(ABM.A)
+
+    ABM.LUP = LUP;
+
+    x = lup_solve(LUP,ABM.b)
+
+    //console.log(x)
+
+    updateElementResults( x, potentialNames, currentNames );
+}
+
+
+
+
+
+function nextStep() 
+{
+	const dt = 1e-6;
+	ABM = buildMatrix( dt )
+
+	if( x.length != ABM.A.length ) 
+	{
+		fullCountStep();
+		return;
+	}
+
+    const potentialNames = ABM.potentialNames;
+    const currentNames = ABM.currentNames;
+ 
+   // print_matrix(" A : b", ABM.A, ABM.b )
+    const LUP = lup_decompose(ABM.A)
+
+    const bplus = matrix_mul_vec(ABM.Aprev,x)
+
+    //console.log("bplus" + JSON.stringify(bplus))
+
+  	const bb = vec_sum( ABM.b, bplus )
+
+   // print_matrix( "Aprev : bb", ABM.Aprev, bb )
+
+
+    x = lup_solve(LUP,vec_sum(ABM.b , bplus) )
+
+   // console.log(x)
+}
+
+
+function nextStepCallback()
+{
+	nextStep();
+    updateElementResults( x, ABM.potentialNames, ABM.currentNames );
+}
+
+
+function hundredStepsCallback()
+{
+	for( let i=0; i<100; i++ ) nextStepCallback();
+	//nextStep();
+    //updateElementResults( x, ABM.potentialNames, ABM.currentNames );
+}
+
+
+
+function testElements()
+{
+    const P1 = { x:100, y:100}
+    const P2 = { x:200, y:200}
+    const P3 = { x:400, y:50 }
+
+    drawGrid();
+
+    const W = parseInt( DRAW_WINDOW.style.width  )
+    const H = parseInt( DRAW_WINDOW.style.height )
+
+    DRAW_WINDOW.scrollTop  = W/2;
+    DRAW_WINDOW.scrollLeft = H/2;
+
+    addConnectionPoint( P1.x, P1.y )
+    addConnectionPoint( P2.x, P2.y )
+    addConnectionPoint( P3.x, P3.y )    
+
+    addWireTag( P1, P2 );
+    addWireTag(P2,P3);
+    const els = addElementBox(P1,P3,100,40);
+}
+
+
+function main() 
+{
+    drawGrid();
+
+/*
+   const W = DRAW_WINDOW.offsetWidth; // parseInt( DRAW_WINDOW.style.width  )
+   const H = DRAW_WINDOW.offsetHeight; // parseInt( DRAW_WINDOW.style.height )
+
+    DRAW_WINDOW.scrollTop  = H/2;
+    DRAW_WINDOW.scrollLeft = W/2;   
+*/
+   const WDW =  DRAW_WINDOW.offsetWidth;
+   const HDW = DRAW_WINDOW.offsetHeight; 
+
+   const WC = CANVAS.offsetWidth;
+   const HC = CANVAS.offsetHeight;
+
+   DRAW_WINDOW.scrollTop  = (HC - HDW)/2;
+   DRAW_WINDOW.scrollLeft = (WC - WDW) /2;
+}
+
+main();
+
+//let c="a"
+
+//console.log({a : 1, b:2 }[c])
+
+
+//console.log( resultNameHTML("Phi1"))
+//console.log( resultNameHTML("I3"))
+//let x = parseFloat("12.345")
+
+//console.log(x*2)
+
+</script>
+
+</body>
+
+
+</html>
